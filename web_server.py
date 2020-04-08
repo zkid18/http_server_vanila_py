@@ -96,7 +96,6 @@ class HTTPRequest:
 
     def parse_request_line(self, line):
         words = line.split(' ')
-        print(words)
         self.method = words[0]
         self.uri = words[1]
 
@@ -133,7 +132,6 @@ class HTTPServer(TCPServer):
         except AttributeError:
             handler = self.HTTP_501_handler
         response = handler(request)
-        print(response)
         return response
 
 
@@ -150,7 +148,6 @@ class HTTPServer(TCPServer):
             response_body = "<h1>404 Not Found</h1>"
 
         response = (response_line, response_headers, '\r\n', response_body)
-        print(response)
         return "".join(response)
 
 
