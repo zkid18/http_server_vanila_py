@@ -2,6 +2,10 @@ import socket
 import os
 import logging
 import multiprocessing
+import mimetypes
+import argparse
+from datetime import datetime
+
 
 SOCKET_TIMEOUT = 10
 RECONNECT_MAX_ATTEMPTS = 5
@@ -10,6 +14,7 @@ PACKET_SIZE = 1024
 HOST = '127.0.0.1'
 PORT = 8080
 DOCUMENT_ROOT = './DOCUMENT_ROOT/'
+SERVER_NAME = 'HTTPServer'
 
 class TCPServer:
 
@@ -19,7 +24,7 @@ class TCPServer:
     so_reuseaddr = socket.SO_REUSEADDR
     request_queue_size = 5
 
-    def __init__(self, host, port,
+    def __init__(self, host, port, doc_root
                 socket_timeout=SOCKET_TIMEOUT,
                 reconnect_max_attempts=RECONNECT_MAX_ATTEMPTS,
                 reconnect_delay=RECONNECT_DELAY,
@@ -27,6 +32,7 @@ class TCPServer:
         
         self.host = host
         self.port = port
+        self.doc_root = doc_root
         self.socket_timeout = socket_timeout
         self.reconnect_delay = reconnect_delay
         self.reconnect_max_attempts = reconnect_max_attempts
@@ -73,7 +79,7 @@ class TCPServer:
             data = conn.recv(PACKET_SIZE)
             if data:
                 response = self.handle_request(data)
-                conn.sendall(response.encode())
+                conn.sendall(response)
             else:
                 logging.info("No data recieved from {}".format(addr))
             conn.close()
@@ -123,25 +129,30 @@ class HTTPResponse:
         self.uri = request.uri
         self.headers = request.headers
 
-    def process_request(self):
+    def process_request(self, doc_root):
         if self.method in ["GET", "HEAD"]:
-            filename = DOCUMENT_ROOT + self.uri.strip('/')
+            path = self.uri.strip('/')
+            filename = doc_root + 'index.html' if path == '' else doc_root + path
             if os.path.exists(filename):
                 response_line = self.response_line(200)
-                response_headers = self.response_headers()
-                with open(filename, 'r') as filename_to_open:
+                contenet_type = mimetypes.guess_type(filename)[0] or 'text/html'
+                content_lenght = os.path.getsize(filename)
+                extra_headers = {'Content-Type': contenet_type, 
+                                'Content-Length': content_lenght}
+                response_headers = self.response_headers(extra_headers)
+                with open(filename, 'rb') as filename_to_open:
                     response = filename_to_open.read()
                 response_body = response
             else:
                 response_line = self.response_line(404)
                 response_headers = self.response_headers()
-                response_body = "<h1>404 Not Found</h1>"
+                response_body = "<h1>404 Not Found</h1>".encode()
             
             if self.method == 'GET': 
-                response = (response_line, response_headers, '\r\n', response_body)
+                response = "".join((response_line, response_headers, '\r\n')).encode() + response_body
             elif self.method == "HEAD":
-                response = (response_line, response_headers, '\r\n')
-            return "".join(response)
+                response = "".join((response_line, response_headers, '\r\n')).encode()
+            return response
         else:
             response_line = self.response_line(status_code=501)
             response_headers = self.response_headers()
@@ -164,55 +175,89 @@ class HTTPResponse:
         extra headers for the current response
         """
         headers_copy = self.headers.copy()
-
         if extra_headers:
             headers_copy.update(extra_headers)
 
-        headers = ""
+        response_headers = {}
+        response_headers['Date'] = datetime.now().strftime('%a, %d %b %Y %H:%M:%S')
+        response_headers['Connection'] = headers_copy.get('Connection', None)
+        response_headers['Server'] = SERVER_NAME
+        response_headers['Content-Length'] = headers_copy.get('Content-Length', None)
+        response_headers['Content-Type'] = headers_copy.get('Content-Type', None)
 
-        for h in self.headers:
-            headers += "{}:{}\r\n".format(h, self.headers[h])
-        return headers
+        return ''.join(["%s: %s\r\n" % (key, value) for (key, value) in response_headers.items()])
+        #return '\r\n'.join('{}: {}'.format(k, v) for k, v in response_headers.items())
+        #return '\r\n'.join('{}:{}'.format(k,v) for k, v in response_headers.items())
 
 
 
 class HTTPServer(TCPServer):
-
-
-    headers = {
-        'Server': 'CrudeServer',
-        'Content-Type': 'text/html',
-    }
 
     def handle_request(self, data):
         """Handles the incoming request.
         Compiles and returns the response
         """
         worker_id = os.getpid()
-        request = HTTPRequest(data)
-        request.parse()
-        response = HTTPResponse(request)
-        return response.process_request()
+        try:
+            request = HTTPRequest(data)
+            request.parse()
+            response = HTTPResponse(request)
+            logging.info('[Worker {}] Processing request'.format(
+                worker_id,
+            ))
+            return response.process_request(self.doc_root)
+        except Exception:
+            logging.exception('[Worker {}] Error while sending request to'.format(
+                worker_id,
+            ))
 
 
 
-def run_server(host, port, workers):
+def run_server(host, port, workers, doc_root):
     '''
     Run server and start workers
     Once a client has connected, a new thread will be inititated to handle intereaction between
     the server and the client.
     '''
     logging.info('Staring server on at {0}:{1}'.format(host, port))
-    server = HTTPServer(host, port, workers)
+    server = HTTPServer(host, port, doc_root)
     server.start()
 
-    for _ in range(workers):
-        communication_server = multiprocessing.Process(target=server.run_forever, args=())
-        communication_server.start()
-        logging.debug("Worked started")
+    processses = []
+    try:
+        for _ in range(workers):
+            communication_server = multiprocessing.Process(target=server.run_forever, args=())
+            processses.append(communication_server)
+            # communication_server.daemon = True
+            communication_server.start()
+            logging.debug("Worker started")
+    except KeyboardInterrupt:
+        for process in processses:
+            if process:
+                process.terminate()
+
+def set_logger(debug=True):
+    '''
+    Setup logger configuration
+    '''
+    logging.basicConfig(level=logging.DEBUG if debug else logging.INFO, 
+                        format='[%(asctime)s] %(levelname).1s %(message)s', 
+                        datefmt='%Y.%m.%d %H:%M:%S')
 
 
+def parse_elements():
+    parser = argparse.ArgumentParser(description='Read cofing')
+    parser.add_argument('-s', '--host', default=HOST, required=True,  help='Host')
+    parser.add_argument('-p', '--port', default=PORT, required=True,  help='Port')
+    parser.add_argument('-w', '--workers', default=1, required=False,  help='Number of worker')
+    parser.add_argument('-r', '--doc_root', default=DOCUMENT_ROOT, required=True,  help='Documnets root')
+    parser.add_argument('-', '--port', default=PORT, required=True,  help='Port')
+
+def set_doc_root(doc_root):
+    return doc_root if os.path.exists(doc_root) else DOCUMENT_ROOT
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname).1s %(message)s', datefmt='%Y.%m.%d %H:%M:%S')
-    run_server(HOST, PORT, 5)
+    args = parse_elements()
+    set_logger(debug=False)
+    doc_root = set_doc_root(args.doc_root)
+    run_server(args.host, args.port, args.workers, doc_root)
