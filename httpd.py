@@ -24,7 +24,7 @@ class TCPServer:
     so_reuseaddr = socket.SO_REUSEADDR
     request_queue_size = 5
 
-    def __init__(self, host, port, doc_root
+    def __init__(self, host, port, doc_root,
                 socket_timeout=SOCKET_TIMEOUT,
                 reconnect_max_attempts=RECONNECT_MAX_ATTEMPTS,
                 reconnect_delay=RECONNECT_DELAY,
@@ -247,11 +247,11 @@ def set_logger(debug=True):
 
 def parse_elements():
     parser = argparse.ArgumentParser(description='Read cofing')
-    parser.add_argument('-s', '--host', default=HOST, required=True,  help='Host')
-    parser.add_argument('-p', '--port', default=PORT, required=True,  help='Port')
+    parser.add_argument('-s', '--host', default=HOST, help='Host')
+    parser.add_argument('-p', '--port', default=PORT, help='Port')
     parser.add_argument('-w', '--workers', default=1, required=False,  help='Number of worker')
-    parser.add_argument('-r', '--doc_root', default=DOCUMENT_ROOT, required=True,  help='Documnets root')
-    parser.add_argument('-', '--port', default=PORT, required=True,  help='Port')
+    parser.add_argument('-r', '--doc_root', default=DOCUMENT_ROOT, help='Documnets root')
+    return parser.parse_args()
 
 def set_doc_root(doc_root):
     return doc_root if os.path.exists(doc_root) else DOCUMENT_ROOT
