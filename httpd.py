@@ -5,9 +5,11 @@ import multiprocessing
 import mimetypes
 import argparse
 from datetime import datetime
+import urllib.parse
 
 
-SOCKET_TIMEOUT = 10
+
+SOCKET_TIMEOUT = 30
 RECONNECT_MAX_ATTEMPTS = 5
 RECONNECT_DELAY = 10
 PACKET_SIZE = 1024
@@ -79,7 +81,8 @@ class TCPServer:
             data = conn.recv(PACKET_SIZE)
             if data:
                 response = self.handle_request(data)
-                conn.sendall(response)
+                if response:
+                    conn.sendall(response)
             else:
                 logging.info("No data recieved from {}".format(addr))
             conn.close()
@@ -93,23 +96,35 @@ class HTTPRequest:
     def __init__(self, data):
         self.data = data.decode()
         self.headers = {}
+        self.method = None
+        self.uri = None
+        self.args = {}
+        self.http_version = None
 
     def parse(self):
         lines = self.data.split('\r\n')
         request_line = lines[0]
-        self._parse_request_line(request_line)
-        for field in lines[1:]:
-            logging.info("Field {}".format(field))
-            try:
-                key, value = field.split(': ')
-                self.headers[key] = value
-            except ValueError as e:
-                logging.error("{0} for value {1}".format(e,field))
+        if request_line != '\n':
+            logging.debug("Request line {}".format(request_line))
+            self._parse_request_line(request_line)
+            for field in lines[1:]:
+                logging.debug("Field {}".format(field))
+                try:
+                    key, value = field.split(': ')
+                    self.headers[key] = value
+                except ValueError as e:
+                    logging.error("{0} for value {1}".format(e,field))
 
     def _parse_request_line(self, line):
         words = line.split(' ')
         self.method = words[0]
-        self.uri = words[1]
+        req = words[1].split('?')
+        # self.uri = req[0].replace('%20', ' ')
+        self.uri = urllib.parse.unquote(req[0])
+        
+        if len(req) > 2:
+            raw_args = req[0].split['&']
+            self.args = {arg.split('=')[0]:arg.split('=')[1] for arg in raw_args}
 
         if len(words) > 1:
             self.http_version = words[2]
@@ -119,6 +134,7 @@ class HTTPResponse:
 
     status_codes = {
         200: 'OK',
+        400: 'Bad request',
         404: 'Not found', 
         403: 'Forbidden',
         405: 'Invalid request',
@@ -130,9 +146,31 @@ class HTTPResponse:
         self.headers = request.headers
 
     def process_request(self, doc_root):
+        if (self.method is None):
+            response_line = self.response_line(status_code=400)
+            response_headers = self.response_headers()
+            response = "".join((response_line, response_headers, '\r\n')).encode()
+            return response
+
         if self.method in ["GET", "HEAD"]:
-            path = self.uri.strip('/')
-            filename = doc_root + 'index.html' if path == '' else doc_root + path
+            if self.uri.startswith("/"):
+                path = doc_root+ self.uri[1:]
+            if self.uri == '':
+                filename = doc_root + 'index.html'
+            elif (os.path.isdir(path)):                    
+                if not path.endswith('/'):
+                    path += '/'
+                filename = path + 'index.html'
+            else:
+                filename = path
+            logging.debug("Filename {}".format(filename))    
+
+            if self._is_directory_traversal(doc_root, filename):
+                logging.info("Directory traversal attack")
+                response_line = self.response_line(403)
+                response_headers = self.response_headers()
+                response_body = "<h1>403 Forbidden</h1>".encode()         
+
             if os.path.exists(filename):
                 response_line = self.response_line(200)
                 contenet_type = mimetypes.guess_type(filename)[0] or 'text/html'
@@ -142,11 +180,12 @@ class HTTPResponse:
                 response_headers = self.response_headers(extra_headers)
                 with open(filename, 'rb') as filename_to_open:
                     response = filename_to_open.read()
-                response_body = response
+                response_body = response 
+            
             else:
                 response_line = self.response_line(404)
                 response_headers = self.response_headers()
-                response_body = "<h1>404 Not Found</h1>".encode()
+                response_body = "<h1>404 Not Found</h1>".encode()                 
             
             if self.method == 'GET': 
                 response = "".join((response_line, response_headers, '\r\n')).encode() + response_body
@@ -154,15 +193,11 @@ class HTTPResponse:
                 response = "".join((response_line, response_headers, '\r\n')).encode()
             return response
         else:
-            response_line = self.response_line(status_code=501)
+            response_line = self.response_line(status_code=405)
             response_headers = self.response_headers()
-            blank_line = "\r\n"
-            response_body = "<h1>405 Not Implemented</h1>"
-            return ','.join(list((response_line, 
-                              response_headers, 
-                              blank_line, 
-                              response_body
-                              )))
+            response_body = "<h1>405 Not Implemented</h1>".encode()
+            response = "".join((response_line, response_headers, '\r\n')).encode() + response_body
+            return response
 
     def response_line(self, status_code):
         """Returns response line"""
@@ -186,8 +221,16 @@ class HTTPResponse:
         response_headers['Content-Type'] = headers_copy.get('Content-Type', None)
 
         return ''.join(["%s: %s\r\n" % (key, value) for (key, value) in response_headers.items()])
-        #return '\r\n'.join('{}: {}'.format(k, v) for k, v in response_headers.items())
-        #return '\r\n'.join('{}:{}'.format(k,v) for k, v in response_headers.items())
+
+    def _is_directory_traversal(self, doc_root, filename):
+        current_directory = os.path.abspath(doc_root)
+        requested_path = os.path.relpath(filename, start=current_directory)
+        common_prefix = os.path.commonprefix([requested_path, current_directory])
+        logging.debug("Common prefix {}".format(common_prefix))
+        logging.debug("Current directory {}".format(current_directory))
+        has_dir_traversal = common_prefix != current_directory
+        has_dir_traversal = requested_path.startswith(os.pardir)
+        return has_dir_traversal
 
 
 
@@ -202,13 +245,13 @@ class HTTPServer(TCPServer):
             request = HTTPRequest(data)
             request.parse()
             response = HTTPResponse(request)
-            logging.info('[Worker {}] Processing request'.format(
-                worker_id,
+            logging.info('[Worker {0}] Processing request {1} to {2}'.format(
+                worker_id, request.method, request.uri
             ))
             return response.process_request(self.doc_root)
         except Exception:
-            logging.exception('[Worker {}] Error while sending request to'.format(
-                worker_id,
+            logging.exception('[Worker {0}] Error while sending request'.format(
+                worker_id
             ))
 
 
@@ -248,8 +291,8 @@ def set_logger(debug=True):
 def parse_elements():
     parser = argparse.ArgumentParser(description='Read cofing')
     parser.add_argument('-s', '--host', default=HOST, help='Host')
-    parser.add_argument('-p', '--port', default=PORT, help='Port')
-    parser.add_argument('-w', '--workers', default=1, required=False,  help='Number of worker')
+    parser.add_argument('-p', '--port', type=int, default=PORT, help='Port')
+    parser.add_argument('-w', '--workers', type=int, default=1, required=False,  help='Number of worker')
     parser.add_argument('-r', '--doc_root', default=DOCUMENT_ROOT, help='Documnets root')
     return parser.parse_args()
 
@@ -258,6 +301,7 @@ def set_doc_root(doc_root):
 
 if __name__ == '__main__':
     args = parse_elements()
-    set_logger(debug=False)
+    set_logger(debug=True)
+    logging.info(args.doc_root)
     doc_root = set_doc_root(args.doc_root)
     run_server(args.host, args.port, args.workers, doc_root)
