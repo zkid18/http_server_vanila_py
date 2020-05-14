@@ -163,7 +163,6 @@ class HTTPResponse:
                 filename = path + 'index.html'
             else:
                 filename = path
-            logging.debug("Filename {}".format(filename))    
 
             if self._is_directory_traversal(doc_root, filename):
                 logging.info("Directory traversal attack")
@@ -171,7 +170,8 @@ class HTTPResponse:
                 response_headers = self.response_headers()
                 response_body = "<h1>403 Forbidden</h1>".encode()         
 
-            if os.path.exists(filename):
+            elif os.path.exists(filename):
+                logging.debug("Filename {} exist".format(filename))
                 response_line = self.response_line(200)
                 contenet_type = mimetypes.guess_type(filename)[0] or 'text/html'
                 content_lenght = os.path.getsize(filename)
@@ -183,6 +183,7 @@ class HTTPResponse:
                 response_body = response 
             
             else:
+                logging.debug("Filename {} doesn't exist".format(filename))
                 response_line = self.response_line(404)
                 response_headers = self.response_headers()
                 response_body = "<h1>404 Not Found</h1>".encode()                 
@@ -223,15 +224,19 @@ class HTTPResponse:
         return ''.join(["%s: %s\r\n" % (key, value) for (key, value) in response_headers.items()])
 
     def _is_directory_traversal(self, doc_root, filename):
-        current_directory = os.path.abspath(doc_root)
-        requested_path = os.path.relpath(filename, start=current_directory)
-        common_prefix = os.path.commonprefix([requested_path, current_directory])
-        logging.debug("Common prefix {}".format(common_prefix))
-        logging.debug("Current directory {}".format(current_directory))
-        has_dir_traversal = common_prefix != current_directory
-        has_dir_traversal = requested_path.startswith(os.pardir)
-        return has_dir_traversal
-
+        route = filename.split("/..")
+        logging.debug("Route {}".format(route))
+        if len(route) > 1:
+            route_path = route[0]
+            current_directory = os.path.abspath(doc_root+route_path)
+            requested_path = os.path.relpath(filename, start=current_directory)
+            common_prefix = os.path.commonprefix([requested_path, current_directory])
+            logging.debug("Common prefix {}".format(common_prefix))
+            logging.debug("Current directory {}".format(current_directory))
+            has_dir_traversal = common_prefix != current_directory
+            has_dir_traversal = requested_path.startswith(os.pardir)
+            return has_dir_traversal
+        return False
 
 
 class HTTPServer(TCPServer):
@@ -297,7 +302,12 @@ def parse_elements():
     return parser.parse_args()
 
 def set_doc_root(doc_root):
-    return doc_root if os.path.exists(doc_root) else DOCUMENT_ROOT
+    if os.path.exists(doc_root):
+        logging.debug("Document root {} exist".format(doc_root))
+        return doc_root
+    else:
+        logging.debug("Document root {} doesn't exist".format(doc_root))
+        return DOCUMENT_ROOT
 
 if __name__ == '__main__':
     args = parse_elements()

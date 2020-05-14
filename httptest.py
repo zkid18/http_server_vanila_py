@@ -144,12 +144,12 @@ class HttpServer(unittest.TestCase):
     else:
       self.assertIn("Wikimedia Foundation, Inc.", data)
 
-  # def test_document_root_escaping(self):
-  #   """document root escaping forbidden"""
-  #   self.conn.request("GET", "/httptest/../../../../../../../../../../../../../etc/passwd")
-  #   r = self.conn.getresponse()
-  #   data = r.read()
-  #   self.assertIn(int(r.status), (400, 403, 404))
+  def test_document_root_escaping(self):
+    """document root escaping forbidden"""
+    self.conn.request("GET", "/httptest/../../../../../../../../../../../../../etc/passwd")
+    r = self.conn.getresponse()
+    data = r.read()
+    self.assertIn(int(r.status), (400, 403, 404))
 
   def test_file_with_dot_in_name(self):
     """file with two dots in name"""
