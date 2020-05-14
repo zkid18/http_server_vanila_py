@@ -8,7 +8,6 @@ from datetime import datetime
 import urllib.parse
 
 
-
 SOCKET_TIMEOUT = 30
 RECONNECT_MAX_ATTEMPTS = 5
 RECONNECT_DELAY = 10

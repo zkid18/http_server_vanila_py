@@ -68,7 +68,9 @@ http://127.0.0.1:8080/httptest/wikipedia_russia.html
 
 2. Load testing
 Test in CentOS 
-`ab -n 50000 -c 10 -r http://127.0.0.1:8081/`
+`docker build --tag http_server:1.0 .`
+`docker run --publish 8081:8080 --name bb http_server:1.0 --port=8080 --workers=4`
+`ab -n 50000 -c 100 -s 9999 -r http://127.0.0.1:8081`
 
 ```
 Benchmarking 127.0.0.1 (be patient)
@@ -92,32 +94,34 @@ Server Port:            8081
 Document Path:          /
 Document Length:        161 bytes
 
-Concurrency Level:      10
-Time taken for tests:   329.907 seconds
-Complete requests:      50000
-Failed requests:        0
-Total transferred:      14850000 bytes
-HTML transferred:       8050000 bytes
-Requests per second:    151.56 [#/sec] (mean)
-Time per request:       65.981 [ms] (mean)
-Time per request:       6.598 [ms] (mean, across all concurrent requests)
-Transfer rate:          43.96 [Kbytes/sec] received
+Concurrency Level:      100
+Time taken for tests:   963.490 seconds
+Complete requests:      49994
+Failed requests:        227
+   (Connect: 0, Receive: 0, Length: 227, Exceptions: 0)
+Total transferred:      14780799 bytes
+HTML transferred:       8012487 bytes
+Requests per second:    51.89 [#/sec] (mean)
+Time per request:       1927.212 [ms] (mean)
+Time per request:       19.272 [ms] (mean, across all concurrent requests)
+Transfer rate:          14.98 [Kbytes/sec] received
 
 Connection Times (ms)
               min  mean[+/-sd] median   max
-Connect:        0   12  59.3      9    5513
-Processing:     3   50  98.9     34    5548
-Waiting:        3   46  93.2     30    5543
-Total:          6   63 114.8     45    5568
+Connect:        0   16 361.2      3   22190
+Processing:     4 1307 10140.8     51  228237
+Waiting:        0  687 3746.5     49  116763
+Total:          7 1323 10148.5     55  228279
 
 Percentage of the requests served within a certain time (ms)
-  50%     45
-  66%     51
-  75%     56
-  80%     60
-  90%     77
-  95%    105
-  98%    359
-  99%    513
+  50%     55
+  66%     76
+  75%    100
+  80%    143
+  90%   1257
+  95%   3150
+  98%   7694
+  99%  17266
+ 100%  228279
 ```
 
