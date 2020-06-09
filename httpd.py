@@ -2,6 +2,7 @@ import socket
 import os
 import logging
 import multiprocessing
+import threading
 import mimetypes
 import argparse
 from datetime import datetime
@@ -24,6 +25,8 @@ class TCPServer:
     sol_socket = socket.SOL_SOCKET
     so_reuseaddr = socket.SO_REUSEADDR
     request_queue_size = 5
+    allow_reuse_address = False
+
 
     def __init__(self, host, port, doc_root,
                 socket_timeout=SOCKET_TIMEOUT,
@@ -41,7 +44,8 @@ class TCPServer:
 
     def server_bind(self):
         self.socket.bind((self.host, self.port))
-        self.socket.setsockopt(self.sol_socket, self.so_reuseaddr, 1)
+        if self.allow_reuse_address:
+            self.socket.setsockopt(self.sol_socket, self.so_reuseaddr, 1)
         self.server_address = self.socket.getsockname()
 
     def server_activate(self):
@@ -63,7 +67,6 @@ class TCPServer:
             pass #some platforms may raise ENOTCONN here
         request.close()
 
-
     def server_close(self):
         """Called to clean-up the server.
         May be overridden.
@@ -73,18 +76,6 @@ class TCPServer:
     def start(self):
         self.server_bind()
         self.server_activate()
-
-    def run_forever(self):
-        while True:
-            conn, addr = self.get_request()
-            data = conn.recv(PACKET_SIZE)
-            if data:
-                response = self.handle_request(data)
-                if response:
-                    conn.sendall(response)
-            else:
-                logging.info("No data recieved from {}".format(addr))
-            conn.close()
 
     def handle_request(self, data):
         return data
@@ -118,7 +109,6 @@ class HTTPRequest:
         words = line.split(' ')
         self.method = words[0]
         req = words[1].split('?')
-        # self.uri = req[0].replace('%20', ' ')
         self.uri = urllib.parse.unquote(req[0])
         
         if len(req) > 2:
@@ -151,6 +141,7 @@ class HTTPResponse:
             response = "".join((response_line, response_headers, '\r\n')).encode()
             return response
 
+
         if self.method in ["GET", "HEAD"]:
             if self.uri.startswith("/"):
                 path = doc_root+ self.uri[1:]
@@ -177,15 +168,16 @@ class HTTPResponse:
                 extra_headers = {'Content-Type': contenet_type, 
                                 'Content-Length': content_lenght}
                 response_headers = self.response_headers(extra_headers)
-                with open(filename, 'rb') as filename_to_open:
-                    response = filename_to_open.read()
-                response_body = response 
+                if self.method == 'GET':
+                    with open(filename, 'rb') as filename_to_open:
+                        response = filename_to_open.read()
+                    response_body = response 
             
             else:
                 logging.debug("Filename {} doesn't exist".format(filename))
                 response_line = self.response_line(404)
                 response_headers = self.response_headers()
-                response_body = "<h1>404 Not Found</h1>".encode()                 
+                response_body = "<h1>404 Not Found</h1>".encode()
             
             if self.method == 'GET': 
                 response = "".join((response_line, response_headers, '\r\n')).encode() + response_body
@@ -240,23 +232,41 @@ class HTTPResponse:
 
 class HTTPServer(TCPServer):
 
-    def handle_request(self, data):
+    def run_forever(self):
+        while True:
+            client_sock, addr = self.get_request()
+            client_handler = threading.Thread(
+                target=self.handle_client_request,
+                args=(client_sock,addr, )
+            )
+            client_handler.start()
+            
+
+    def handle_client_request(self, conn, addr):
         """Handles the incoming request.
         Compiles and returns the response
         """
-        worker_id = os.getpid()
-        try:
-            request = HTTPRequest(data)
-            request.parse()
-            response = HTTPResponse(request)
-            logging.info('[Worker {0}] Processing request {1} to {2}'.format(
-                worker_id, request.method, request.uri
-            ))
-            return response.process_request(self.doc_root)
-        except Exception:
-            logging.exception('[Worker {0}] Error while sending request'.format(
-                worker_id
-            ))
+        data = conn.recv(PACKET_SIZE)
+        logging.info('Recieved {}'.format(data))
+        if data: 
+            worker_id = os.getpid()
+            try:
+                request = HTTPRequest(data)
+                request.parse()
+                response = HTTPResponse(request)
+                logging.info('[Worker {0}] Processing request {1} to {2}'.format(
+                    worker_id, request.method, request.uri
+                ))
+                response_to_send = response.process_request(self.doc_root)
+                if response_to_send:
+                    conn.sendall(response_to_send)
+            except Exception:
+                logging.exception('[Worker {0}] Error while sending request'.format(
+                    worker_id
+                ))
+        else:
+            logging.info("No data recieved from {}".format(addr))
+        conn.close()
 
 
 
@@ -275,7 +285,6 @@ def run_server(host, port, workers, doc_root):
         for _ in range(workers):
             communication_server = multiprocessing.Process(target=server.run_forever, args=())
             processses.append(communication_server)
-            # communication_server.daemon = True
             communication_server.start()
             logging.debug("Worker started")
     except KeyboardInterrupt:
