@@ -7,6 +7,8 @@ import mimetypes
 import argparse
 from datetime import datetime
 import urllib.parse
+from socketserver import ThreadingMixIn
+from queue import Queue
 
 
 SOCKET_TIMEOUT = 30
@@ -233,14 +235,26 @@ class HTTPResponse:
 class HTTPServer(TCPServer):
 
     def run_forever(self):
+        numThreads = 50
+        self.requests = Queue(numThreads)
+        for _ in range(numThreads):
+            t = threading.Thread(target=self.process_request_thread)
+            t.start()
+
         while True:
             client_sock, addr = self.get_request()
-            client_handler = threading.Thread(
-                target=self.handle_client_request,
-                args=(client_sock,addr, )
-            )
-            client_handler.start()
+            self.handle_client_request(client_sock, addr)
+        # while True:
+        #     client_sock, addr = self.get_request()
+        #     client_handler = threading.Thread(
+        #         target=self.handle_client_request,
+        #         args=(client_sock,addr, )
+        #     )
+        #     client_handler.start()
             
+    def process_request_thread(self):
+        while True:
+            ThreadingMixIn.process_request_thread(self, *self.requests.get())
 
     def handle_client_request(self, conn, addr):
         """Handles the incoming request.
