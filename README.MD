@@ -70,7 +70,7 @@ http://127.0.0.1:8080/httptest/wikipedia_russia.html
 Test in CentOS 
 `docker build --tag http_server:1.0 .`
 `docker run --publish 8081:8080 --name bb http_server:1.0 --port=8080 --workers=4`
-`ab -n 50000 -c 100 -s 9999 -r http://127.0.0.1:8081`
+`ab -n 50000 -c 100 -s 9999 -r http://127.0.0.1:8081/`
 
 ```
 Benchmarking 127.0.0.1 (be patient)
@@ -95,33 +95,33 @@ Document Path:          /
 Document Length:        161 bytes
 
 Concurrency Level:      100
-Time taken for tests:   963.490 seconds
-Complete requests:      49994
-Failed requests:        227
-   (Connect: 0, Receive: 0, Length: 227, Exceptions: 0)
-Total transferred:      14780799 bytes
-HTML transferred:       8012487 bytes
-Requests per second:    51.89 [#/sec] (mean)
-Time per request:       1927.212 [ms] (mean)
-Time per request:       19.272 [ms] (mean, across all concurrent requests)
-Transfer rate:          14.98 [Kbytes/sec] received
+Time taken for tests:   605.924 seconds
+Complete requests:      50000
+Failed requests:        67
+   (Connect: 0, Receive: 0, Length: 67, Exceptions: 0)
+Total transferred:      14830101 bytes
+HTML transferred:       8039213 bytes
+Requests per second:    82.52 [#/sec] (mean)
+Time per request:       1211.848 [ms] (mean)
+Time per request:       12.118 [ms] (mean, across all concurrent requests)
+Transfer rate:          23.90 [Kbytes/sec] received
 
 Connection Times (ms)
               min  mean[+/-sd] median   max
-Connect:        0   16 361.2      3   22190
-Processing:     4 1307 10140.8     51  228237
-Waiting:        0  687 3746.5     49  116763
-Total:          7 1323 10148.5     55  228279
+Connect:        0   56 2691.2     16  245598
+Processing:     6 1076 15207.3     38  459381
+Waiting:        0  672 8905.9     34  309110
+Total:          8 1132 15446.5     56  459385
 
 Percentage of the requests served within a certain time (ms)
-  50%     55
-  66%     76
-  75%    100
-  80%    143
-  90%   1257
-  95%   3150
-  98%   7694
-  99%  17266
- 100%  228279
+  50%     56
+  66%     74
+  75%     98
+  80%    131
+  90%   1068
+  95%   1499
+  98%   3584
+  99%   7605
+ 100%  459385 (longest request)
 ```
 

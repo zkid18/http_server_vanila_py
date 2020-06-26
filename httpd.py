@@ -86,7 +86,7 @@ class TCPServer:
 class HTTPRequest:
 
     def __init__(self, data):
-        self.data = data.decode()
+        self.data = data
         self.headers = {}
         self.method = None
         self.uri = None
@@ -244,13 +244,6 @@ class HTTPServer(TCPServer):
         while True:
             client_sock, addr = self.get_request()
             self.handle_client_request(client_sock, addr)
-        # while True:
-        #     client_sock, addr = self.get_request()
-        #     client_handler = threading.Thread(
-        #         target=self.handle_client_request,
-        #         args=(client_sock,addr, )
-        #     )
-        #     client_handler.start()
             
     def process_request_thread(self):
         while True:
@@ -260,7 +253,12 @@ class HTTPServer(TCPServer):
         """Handles the incoming request.
         Compiles and returns the response
         """
-        data = conn.recv(PACKET_SIZE)
+        data = ''
+        recvs = 1
+        while not data.endswith('\r\n\r\n'):
+            r = conn.recv(recvs*PACKET_SIZE)
+            data += r.decode()
+        print("Data", data)
         logging.info('Recieved {}'.format(data))
         if data: 
             worker_id = os.getpid()
