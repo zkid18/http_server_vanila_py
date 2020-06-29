@@ -19,6 +19,9 @@ HOST = '127.0.0.1'
 PORT = 8080
 DOCUMENT_ROOT = './www/'
 SERVER_NAME = 'HTTPServer'
+SEPARATOR = '\r\n\r\n'
+SIZE = 1024
+MAX_SIZE = 2048
 
 class TCPServer:
 
@@ -254,12 +257,12 @@ class HTTPServer(TCPServer):
         Compiles and returns the response
         """
         data = ''
-        recvs = 1
-        while not data.endswith('\r\n\r\n'):
-            r = conn.recv(recvs*PACKET_SIZE)
-            data += r.decode()
-        print("Data", data)
-        logging.info('Recieved {}'.format(data))
+        while SEPARATOR not in data and len(data) < MAX_SIZE:
+            b = conn.recv(SIZE)
+            if not b:
+                break
+            data += b.decode()
+        logging.debug('Recieved {}'.format(data))
         if data: 
             worker_id = os.getpid()
             try:
